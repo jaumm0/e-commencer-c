@@ -28,6 +28,7 @@
   --wa-ink: #082e16;
   --r: 14px;
   --r-s: 10px;
+  --pad-x: 18px;   /* respiro lateral global (body + bleed dos chips) */
   --disp: 'Bricolage Grotesque', Georgia, serif;
   --body: 'Manrope', 'Segoe UI', system-ui, sans-serif;
 }
@@ -36,7 +37,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   margin: 0;
-  padding-inline: 18px;
+  padding-inline: var(--pad-x);
   font: 400 15px/1.55 var(--body);
   -webkit-font-smoothing: antialiased;
 }
@@ -200,7 +201,7 @@ h2 { font-size: clamp(20px, 2.6vw, 25px); font-weight: 700; letter-spacing: -.01
 
 .navchips {
   display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
-  padding: 14px 0 4px; margin-inline: -18px; padding-inline: 18px;
+  padding: 14px 0 4px; margin-inline: calc(-1 * var(--pad-x)); padding-inline: var(--pad-x);
   position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 40;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(8px);
@@ -487,6 +488,8 @@ select {
   .tile { flex: 0 0 44vw; max-width: 240px; scroll-snap-align: start; }
 }
 @media (max-width: 560px) {
+  :root { --pad-x: 22px; }
+  .site-foot { padding-inline: 16px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .tile { flex-basis: 46vw; }
   .tile-label { padding: 46px 12px 11px; }
