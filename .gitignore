@@ -1,0 +1,5 @@
+# lixo de sistema/IDE
+Thumbs.db
+.DS_Store
+desktop.ini
+*.tmp
