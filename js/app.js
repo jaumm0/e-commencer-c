@@ -20,6 +20,8 @@
     arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
     filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10m-7 7h4"/></svg>',
+    card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   };
 
   /* ---------- util ---------- */
@@ -76,9 +78,58 @@
   }
   function cartMsg(name) {
     const l = [CFG.saudacao, ''];
-    store.cart.forEach(i => l.push(`• ${i.qty}× ${i.name}${i.vid ? ' — ' + i.vid : ''}`));
+    let total = 0, temPreco = CFG.mostrarPrecos;
+    store.cart.forEach(i => {
+      const p = byId(i.pid);
+      let prec = p && p.price != null && CFG.mostrarPrecos ? ' (R$ ' + brl(p.price * i.qty) + ')' : '';
+      if (!prec) temPreco = false; else total += p.price * i.qty;
+      l.push(`• ${i.qty}× ${i.name}${i.vid ? ' — ' + i.vid : ''}${prec}`);
+    });
+    if (temPreco && store.cart.length) l.push('', `Total estimado: R$ ${brl(total)} (frete acertado com a loja)`);
     if (name) l.push('', `Nome: ${name}`);
     return l.join('\n');
+  }
+
+  /* total do orçamento — só quando TODOS os itens têm preço cadastrado */
+  function cartTotal() {
+    if (!CFG.mostrarPrecos || !store.cart.length) return null;
+    let t = 0;
+    for (const i of store.cart) {
+      const p = byId(i.pid);
+      if (!p || p.price == null) return null;
+      t += p.price * i.qty;
+    }
+    return t;
+  }
+
+  /* valor formatado em reais (usado nas mensagens e no checkout) */
+  function brl(n) { return (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }); }
+
+  /* ---------- pagamento online (config.pagamentos) ----------
+     Botões aparecem só com link/chave configurados em js/config.js. */
+  function renderPay() {
+    const box = $('#drawerPay');
+    const pay = CFG.pagamentos || {};
+    const ck = pay.checkout || {};
+    const row = [];
+    if (ck.ativo) row.push(`<a class="btn btn-primary full" href="#/pagamento">${I.cart} Finalizar compra — pagar no site</a>`);
+    if (pay.link) row.push(`<a class="btn btn-mp full" href="${esc(pay.link)}" target="_blank" rel="noopener">${I.card} Pagar online — Mercado Pago</a>`);
+    if (pay.pix) row.push(`<button class="btn btn-ghost full" data-action="copy-pix">${I.copy} Copiar chave Pix</button>`);
+    if (!row.length) { box.hidden = true; return; }
+    row.unshift(`<p class="small-note muted">${ck.ativo
+      ? 'Fechou o orçamento? Pague aqui mesmo na loja — Pix ou cartão em até 12x.'
+      : pay.link
+        ? 'Fechou o orçamento? Pague por aqui — Pix ou cartão em até 12x pelo Mercado Pago.'
+        : 'Fechou o orçamento? Pague direto no Pix — copie a chave abaixo.'}</p>`);
+    box.innerHTML = row.join('');
+    box.hidden = false;
+    const fp = $('#footPay');
+    if (fp) {
+      fp.hidden = false;
+      fp.textContent = ck.ativo
+        ? 'Pague online aqui mesmo no site — Pix ou cartão em até 12x.'
+        : 'Pague online com Pix ou cartão em até 12x pelo Mercado Pago.';
+    }
   }
 
   /* ---------- cabeçalho ---------- */
@@ -334,12 +385,243 @@
       ${list.length ? grid(list) : `<div class="empty"><p>Nenhum favorito ainda. Toque no ${I.heart(true)} nos produtos que você quiser revisitar.</p></div>`}`;
   }
 
+  /* ---------- checkout dentro do site (Vindi na Cloudflare) ---------- */
+  let payTimer = 0;
+  const PAY_LAST = 'mp_pay_last_v1';
+  function digitos(s) { return String(s || '').replace(/\D/g, ''); }
+  function brlParse(s) { const v = parseFloat(String(s || '').replace(/[^\d,\.]/g, '').replace(/\./g, '').replace(',', '.')); return isFinite(v) ? v : 0; }
+
+  function docValido(d) { /* CPF ou CNPJ, com dígitos verificadores */
+    d = digitos(d);
+    if (d.length === 11) {
+      if (/^(\d)\1+$/.test(d)) return false;
+      const calc = n => { let s = 0; for (let i = 0; i < n; i++) s += +d[i] * (n + 1 - i); const r = 11 - (s % 11); return r > 9 ? 0 : r; };
+      return calc(9) === +d[9] && calc(10) === +d[10];
+    }
+    if (d.length === 14) {
+      if (/^(\d)\1+$/.test(d)) return false;
+      const p1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+      const p2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+      const calc = (P, n) => { let s = 0; for (let i = 0; i < n; i++) s += +d[i] * P[i]; const r = 11 - (s % 11); return r > 9 ? 0 : r; };
+      return calc(p1, 12) === +d[12] && calc(p2, 13) === +d[13];
+    }
+    return false;
+  }
+
+  function viewCheckout() {
+    const ck = (CFG.pagamentos || {}).checkout || {};
+    if (!ck.ativo) {
+      return `<div class="empty"><p>O pagamento online está sendo preparado — no momento a loja opera por orçamento.</p>
+        <p class="muted">Envie sua lista pelo WhatsApp que combinamos preço, frete e prazo por lá.</p>
+        <a class="btn btn-wa" href="${waLink(CFG.saudacao)}">${I.wa} Falar no WhatsApp</a>
+        <p class="small-note muted" style="margin-top:12px">Para ativar: guia “Checkout na própria loja (Vindi)” no README.</p></div>`;
+    }
+    const itemizado = cartTotal() != null && store.cart.length;
+    const tot = itemizado ? cartTotal() : 0;
+    const sinal = ck.sinalFixo > 0 && !itemizado ? ck.sinalFixo : 0;
+    const resumo = itemizado
+      ? `<div class="resumo"><h3 class="p-sect">Seu orçamento</h3>` +
+        store.cart.map(i => { const p = byId(i.pid); return `<div class="r-item"><span>${i.qty}× ${esc(i.name)}${i.vid ? ' <small class="muted">' + esc(i.vid) + '</small>' : ''}</span><span>R$ ${brl(p.price * i.qty)}</span></div>`; }).join('') +
+        `<div class="r-item r-tot"><span>Total</span><span>R$ ${brl(tot)}</span></div>
+         <p class="small-note muted">Frete e condições acertados com a loja pelo WhatsApp.</p></div>`
+      : (sinal ? `<div class="resumo"><div class="r-item r-tot"><span>Sinal da compra</span><span>R$ ${brl(sinal)}</span></div></div>` : '') +
+      `<label class="fld">Valor a pagar${sinal ? '' : ' (o valor acertado no WhatsApp)'} <input id="pValor" inputmode="decimal" autocomplete="off" placeholder="ex.: 1.250,00"${sinal ? ` value="${brl(sinal)}"` : ''}></label>
+       <p class="small-note muted">Não sabe o valor? Envie a lista no WhatsApp e volte aqui depois de acertar.</p>`;
+    let parcOpts = '';
+    for (let k = 1; k <= Math.min(12, ck.parcelasMax || 12); k++) parcOpts += `<option value="${k}">${k === 1 ? '1× à vista' : k + '×'}</option>`;
+    return `
+      <div class="crumbs"><a href="#/">Catálogo</a> › <span>Pagar online</span></div>
+      <section class="paywrap">
+        <div class="paybox">
+          <h1>Pagar online</h1>
+          <p class="muted">Pix com aprovação na hora, ou cartão de crédito em até ${Math.min(12, ck.parcelasMax || 12)}× — processado pela Vindi, aqui mesmo na loja.</p>
+          ${resumo}
+          <form id="pForm" novalidate>
+            <h3 class="p-sect">Seus dados</h3>
+            <div class="fgrid">
+              <label class="fld wide">Nome completo<input id="pNome" autocomplete="name"></label>
+              <label class="fld">E-mail<input id="pEmail" type="email" autocomplete="email"></label>
+              <label class="fld">CPF ou CNPJ<input id="pDoc" inputmode="numeric" autocomplete="off" maxlength="18"></label>
+              <label class="fld">WhatsApp de contato<input id="pTel" inputmode="tel" autocomplete="tel"></label>
+              <h3 class="p-sect wide-sect">Endereço de faturamento</h3>
+              <label class="fld">CEP<input id="pCep" inputmode="numeric" autocomplete="postal-code" maxlength="9"></label>
+              <label class="fld">Rua<input id="pRua" autocomplete="street-address"></label>
+              <label class="fld">Número<input id="pNumero" inputmode="numeric" autocomplete="off"></label>
+              <label class="fld">Complemento (opcional)<input id="pCompl" autocomplete="off"></label>
+              <label class="fld">Bairro<input id="pBairro" autocomplete="off"></label>
+              <label class="fld">Cidade<input id="pCidade" autocomplete="off"></label>
+              <label class="fld" data-min><select id="pUf" autocomplete="address-level1">${['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(u => `<option${u === 'SP' ? ' selected' : ''}>${u}</option>`).join('')}</select></label>
+            </div>
+            <h3 class="p-sect">Forma de pagamento</h3>
+            <div class="mth-row">
+              <button type="button" class="mth on" data-action="sel-met" data-m="pix">${I.check}<strong>Pix</strong><small>Aprovação instantânea</small></button>
+              <button type="button" class="mth" data-action="sel-met" data-m="cartao">${I.card}<strong>Cartão</strong><small>Em até ${Math.min(12, ck.parcelasMax || 12)}×</small></button>
+            </div>
+            <div id="pParcWrap" class="fld" hidden><span>Parcelas</span><select id="pParcelas">${parcOpts}</select></div>
+            <div id="pCardBox" hidden class="cardbox">
+              <div class="fgrid">
+                <label class="fld wide">Nome impresso no cartão<input id="pCardNome" autocomplete="cc-name"></label>
+                <label class="fld">Número do cartão<input id="pCardNum" inputmode="numeric" autocomplete="cc-number" maxlength="19"></label>
+                <label class="fld">Validade (MM/AA)<input id="pCardVal" inputmode="numeric" autocomplete="cc-exp" maxlength="5" placeholder="MM/AA"></label>
+                <label class="fld">CVV<input id="pCardCvv" inputmode="numeric" autocomplete="cc-csc" maxlength="4"></label>
+              </div>
+              <p class="small-note muted">Os dados do cartão vão direto para a Vindi (PCI DSS) — a loja não guarda nada.</p>
+            </div>
+            <div id="pFormErr" class="formerr" hidden></div>
+            <button class="btn btn-primary full" id="pGo" type="submit">Continuar para o pagamento</button>
+          </form>
+        </div>
+      </section>`;
+  }
+
+  function coletarForm() {
+    const cfg = (CFG.pagamentos || {}).checkout || {};
+    const v = id => { const el = $(id); return el ? el.value.trim() : ''; };
+    const itemizado = cartTotal() != null && store.cart.length;
+    const valor = itemizado ? cartTotal() : brlParse(v('#pValor')) || cfg.sinalFixo;
+    if (valor < 5) return { erro: 'Informe o valor a pagar (mínimo R$ 5,00).' };
+    if (digitos(v('#pDoc')).length && !docValido(v('#pDoc'))) return { erro: 'CPF/CNPJ inválido — confira os números.' };
+    const body = {
+      valor, metodo: store.payMet || 'pix', parcelas: +(v('#pParcelas') || 1),
+      descricao: store.cart.length ? ('Orçamento — ' + store.cart.map(i => i.qty + '× ' + i.name).join(', ')).slice(0, 200) : 'Cobrança acertada no WhatsApp',
+      cliente: {
+        nome: v('#pNome'), email: v('#pEmail'), doc: v('#pDoc'), telefone: digitos(v('#pTel')),
+        cep: digitos(v('#pCep')), rua: v('#pRua'), numero: v('#pNumero'), complemento: v('#pCompl'),
+        bairro: v('#pBairro'), cidade: v('#pCidade'), uf: v('#pUf'),
+      },
+    };
+    if (!body.cliente.nome) return { erro: 'Informe seu nome completo.' };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.cliente.email)) return { erro: 'Informe um e-mail válido (a Vindi usa para o comprovante).' };
+    if (!docValido(body.cliente.doc) || !body.cliente.rua || !body.cliente.numero || !body.cliente.cep) return { erro: 'Preencha CPF/CNPJ (válido), endereço, número e CEP.' };
+    if (body.metodo === 'cartao') {
+      const c = { nome: v('#pCardNome'), numero: v('#pCardNum'), validade: v('#pCardVal'), cvv: v('#pCardCvv') };
+      if (!c.nome) return { erro: 'Informe o nome impresso no cartão.' };
+      if (!/^\d{12,19}$/.test(digitos(c.numero))) return { erro: 'Número do cartão inválido.' };
+      const val = digitos(c.validade);
+      if (val.length !== 4 || +val.slice(0, 2) < 1 || +val.slice(0, 2) > 12) return { erro: 'Validade do cartão inválida (MM/AA).' };
+      if (!/^\d{3,4}$/.test(digitos(c.cvv))) return { erro: 'CVV inválido.' };
+      body.cartao = c;
+    }
+    return { body };
+  }
+
+  function formErr(msg) {
+    const e = $('#pFormErr');
+    if (e) { e.textContent = msg; e.hidden = false; }
+  }
+
+  async function paySend(body) {
+    const cfg = (CFG.pagamentos || {}).checkout;
+    const btn = $('#pGo');
+    if (btn) { btn.disabled = true; btn.textContent = 'Processando…'; }
+    let r = null;
+    if (cfg.modoTeste) {
+      r = await simular(body);
+    } else if (location.protocol === 'file:') {
+      r = { ok: false, msg: 'O checkout funciona no site publicado (Cloudflare Pages) — abra pelo endereço da loja.' };
+    } else {
+      try {
+        const resp = await fetch('/api/vindi/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        r = await resp.json().catch(() => null);
+      } catch (e) { r = null; }
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Continuar para o pagamento'; }
+    if (!r || !r.ok) { formErr(r && r.msg ? r.msg : 'Não foi possível criar a cobrança. Fale com a loja ou pague pela chave Pix.'); return; }
+    r.t = Date.now();
+    save(PAY_LAST, r);
+    location.hash = '#/pagamento/' + r.cobranca.id;
+  }
+
+  function simular(body) { /* simulação local do servidor (modoTeste) */
+    const metodo = body.metodo === 'cartao' ? 'cartao' : 'pix';
+    return new Promise(res => setTimeout(() => res({
+      ok: true,
+      cobranca: {
+        id: 'mock-' + Date.now() + (metodo === 'cartao' ? '-c' : ''),
+        status: metodo === 'cartao' ? 'paid' : 'pending',
+        amount: body.valor, metodo,
+        pix: metodo === 'pix' ? { copia: '00020126TESTE-SIMULACAO-SEM-QR-PIX-9' + String(Date.now()).slice(-8), img: '', url: '' } : null,
+        print_url: '',
+      },
+    }), 600));
+  }
+  function simStatus(id) {
+    const ts = Number(id.split('-')[1]) || 0;
+    return { ok: true, status: id.endsWith('-c') || (Date.now() - ts) > 6000 ? 'paid' : 'pending' };
+  }
+
+  async function payStatus(id) {
+    const cfg = (CFG.pagamentos || {}).checkout;
+    if (cfg && cfg.modoTeste) return simStatus(id);
+    try {
+      const r = await fetch('/api/vindi/status?charge_id=' + encodeURIComponent(id));
+      return await r.json().catch(() => null);
+    } catch (e) { return null; }
+  }
+
+  function startPayPoll(id) {
+    clearTimeout(payTimer);
+    const tick = async () => {
+      if (!$('#payState')) return; /* usuário saiu da tela */
+      const j = await payStatus(id);
+      if (j && j.ok) {
+        const l = loadVal(PAY_LAST, null) || {};
+        if (!l.cobranca) return;
+        if (l.status !== j.status) { l.status = j.status; save(PAY_LAST, l); pintaStatus(j.status); }
+        else pintaStatus(l.status);
+        if (j.status !== 'pending') return;
+      }
+      payTimer = setTimeout(tick, 5000);
+    };
+    payTimer = setTimeout(tick, 1500);
+  }
+
+  function pintaStatus(status) {
+    const box = $('#payState');
+    if (!box) return;
+    const l = loadVal(PAY_LAST, null);
+    if (!l || !l.cobranca) return;
+    const c = l.cobranca;
+    const ref = `Referência nº ${esc(String(c.id))}${c.amount ? ' · R$ ' + brl(c.amount) : ''}`;
+    if (status === 'paid') {
+      box.innerHTML = `
+        <div class="pay-ic pay-ok">${I.check}</div>
+        <h1>Pagamento confirmado</h1>
+        <p class="muted">${ref}. A loja recebe a confirmação e combina a entrega com você.</p>
+        <a class="btn btn-wa full" target="_blank" rel="noopener" href="${waLink('Olá! Paguei pelo site.\n\nReferência: #' + c.id + (c.amount ? ' — R$ ' + brl(c.amount) : ''))}">${I.wa} Avisar a loja no WhatsApp</a>
+        <a class="btn btn-ghost full" href="#/">Voltar ao catálogo</a>`;
+      return;
+    }
+    if (status === 'pending') {
+      const pix = c.pix || {};
+      const copia = String(pix.copia || '');
+      box.innerHTML = `
+        <div class="pay-ic pay-pend"><span class="dot"></span></div>
+        <h1>Escaneie o Pix</h1>
+        <p class="muted">Abra o app do banco, escaneie ou cole o código — a tela atualiza sozinha quando o pagamento cair.</p>
+        ${pix.img ? `<img class="qr" src="${esc(pix.img)}" alt="QR Code Pix">` : ''}
+        ${copia ? `<label class="fld">Pix copia e cola<input readonly id="pixCode" value="${esc(copia)}"></label>
+        <button class="btn btn-primary full" data-action="copy-pix-code" data-code="${esc(copia)}">${I.copy} Copiar código Pix</button>` : ''}
+        ${(pix.url || c.print_url) ? `<a class="btn btn-ghost full" target="_blank" rel="noopener" href="${esc(pix.url || c.print_url)}">Abrir a fatura do Pix</a>` : ''}
+        <p class="small-note muted">${ref}. Se fechar a página o Pix continua válido — reabra pelo mesmo link.</p>`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="pay-ic pay-bad">${I.close}</div>
+      <h1>Pagamento não concluído</h1>
+      <p class="muted">${esc(status === 'fraud_review' ? 'Seu pagamento está em análise — a loja avisa você em seguida.' : 'Expirou ou foi cancelado, sem cobrança.')}</p>
+      <a class="btn btn-primary full" href="#/pagamento">Tentar novamente</a>
+      <a class="btn btn-wa full" href="${waLink(CFG.saudacao)}">${I.wa} Falar com a loja</a>`;
+  }
+
   /* ---------- roteador ---------- */
   let route = '';
   let lastRoute = null;
   function parse() {
     route = location.hash || '#/';
-    const mC = route.match(/^#\/c\/(.+)$/), mP = route.match(/^#\/p\/(.+)$/);
+    const mC = route.match(/^#\/c\/(.+)$/), mP = route.match(/^#\/p\/(.+)$/), mS = route.match(/^#\/pagamento\/([\w-]+)$/);
+    if (mS) return ['stat', mS[1]];
+    if (route === '#/pagamento') return ['pag'];
     if (mP) return ['prod', mP[1]];
     if (mC) return ['cat', mC[1] === 'todos' ? 'todos' : (catOf(mC[1]) ? mC[1] : 'todos')];
     if (route === '#/fav') return ['fav'];
@@ -347,6 +629,7 @@
   }
 
   function render() {
+    clearTimeout(payTimer);
     closeDrawer(false);
     const [kind, arg] = parse();
     const v = $('#view');
@@ -356,6 +639,18 @@
     if (kind === 'home') v.innerHTML = viewHome();
     else if (kind === 'cat') { v.innerHTML = viewCatalog(arg); navState(arg); }
     else if (kind === 'prod') v.innerHTML = viewProduct(arg);
+    else if (kind === 'pag') {
+      v.innerHTML = viewCheckout();
+      const f = $('#pForm');
+      if (f) f.addEventListener('submit', e => { e.preventDefault(); const r = coletarForm(); if (r.erro) formErr(r.erro); else paySend(r.body); });
+    }
+    else if (kind === 'stat') {
+      const l = loadVal(PAY_LAST, null);
+      const st = (l && l.cobranca && String(l.cobranca.id) === arg) ? (l.status || l.cobranca.status || 'pending') : null;
+      v.innerHTML = '<div class="crumbs"><a href="#/">Catálogo</a> › <span>Pagamento</span></div><section class="paywrap"><div class="paybox" id="payState"></div></section>';
+      if (!st) $('#payState').innerHTML = '<div class="empty"><p>Recibo não encontrado neste navegador.</p><a class="btn btn-primary full" href="#/pagamento">Ir para o pagamento</a></div>';
+      else { pintaStatus(st); if (st === 'pending') startPayPoll(arg); }
+    }
     else v.innerHTML = viewFav();
     updateBadges();
     window.scrollTo({ top: y });
@@ -390,6 +685,12 @@
       }).join('');
     }
     $('#drawerFoot').hidden = !store.cart.length;
+    const dT = $('#drawerTotal');
+    const tot = cartTotal();
+    if (dT) {
+      dT.hidden = tot == null;
+      if (tot != null) dT.innerHTML = `<span>Total estimado: <span class="dt-val">R$ ${brl(tot)}</span></span><small class="muted">frete acertado com a loja</small>`;
+    }
     const ck = $('#checkoutLink');
     if (ck) ck.href = waLink(cartMsg(''));
     updateBadges();
@@ -465,10 +766,29 @@
     if (a === 'copy-cart') {
       e.preventDefault();
       const name = $('#buyerName') ? $('#buyerName').value.trim() : '';
-      const msg = cartMsg(name);
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(msg).then(() => toast('Lista copiada para enviar ' + I.check)).catch(() => fallbackCopy(msg));
-      } else fallbackCopy(msg);
+      copyText(cartMsg(name), 'Lista copiada para enviar ' + I.check);
+      return;
+    }
+    if (a === 'copy-pix') {
+      const pay = CFG.pagamentos || {};
+      let pix = String(pay.pix || '');
+      if (pay.pixNome) pix += '\n' + pay.pixNome;
+      copyText(pix, 'Chave Pix copiada ' + I.check);
+      return;
+    }
+    if (a === 'sel-met') {
+      e.preventDefault();
+      store.payMet = b.dataset.m === 'cartao' ? 'cartao' : 'pix';
+      document.querySelectorAll('.mth').forEach(m => m.classList.toggle('on', m === b));
+      const cb = $('#pCardBox'), pw = $('#pParcWrap');
+      if (cb) cb.hidden = store.payMet !== 'cartao';
+      if (pw) pw.hidden = store.payMet !== 'cartao';
+      const go = $('#pGo');
+      if (go) go.textContent = store.payMet === 'cartao' ? 'Pagar com cartão' : 'Ir para o pagamento Pix';
+      return;
+    }
+    if (a === 'copy-pix-code') {
+      copyText(b.dataset.code || '', 'Código Pix copiado ' + I.check);
       return;
     }
     if (a === 'clear-filters') {
@@ -529,6 +849,12 @@
     return null;
   }
 
+  function copyText(msg, ok) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(msg).then(() => toast(ok)).catch(() => fallbackCopy(msg));
+    } else fallbackCopy(msg);
+  }
+
   function fallbackCopy(msg) {
     const ta = document.createElement('textarea');
     ta.value = msg;
@@ -552,4 +878,5 @@
   render();
   renderCart();
   updateBadges();
+  renderPay();
 })();
