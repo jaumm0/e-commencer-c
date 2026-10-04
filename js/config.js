@@ -5,7 +5,7 @@
    - cidade, redes, e se mostra preços
    ============================================================ */
 window.MP_CONFIG = {
-  store: 'Multiplus Colchões',
+  store: 'ComfyLife',
   tagline: 'Descanso, sono e terapia em casa',
 
   /* WhatsApp de orçamento. Formato: código do país + DDD + número (só dígitos).
@@ -36,7 +36,7 @@ window.MP_CONFIG = {
      do site fica visível para qualquer visitante. O link gerado no
      painel é o único conteúdo próprio para publicar.                    */
   pagamentos: {
-    link: 'https://link.mercadopago.com.br/kipposystems', // link de pagamento do painel; '' = esconde o botão “Pagar online”
+    link: '', // '' = sem Mercado Pago (checkout da própria loja é o caminho; volta colando um link aqui)
     pix: '',       // opcional: chave Pix — mostra o botão “Copiar chave Pix”
     pixNome: '',   // opcional: nome do favorecido (vai na cópia, para conferência)
 

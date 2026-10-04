@@ -3,9 +3,15 @@
 
   const CFG = window.MP_CONFIG;
   const DATA = window.MP_DATA;
-  const P = 'img/';
   const DK = window.MP_DBG || [];           /* renders com fundo preto (js/bgdark.js) */
   const dkC = img => DK.includes(img) ? 'dk' : '';
+  const P = 'img/'; // prefixo das imagens do repositório
+
+  /* refs 'u/…' (fotos subidas no painel) vêm do servidor (/api/img);
+     refs normais vêm do repositório 'img/<ref>.jpg' */
+  const imgSrc = ref => String(ref || '').indexOf('u/') === 0
+    ? '/api/img/' + ref.slice(2)
+    : P + ref + '.jpg';
 
   /* ---------- ícones ---------- */
   const I = {
@@ -43,6 +49,16 @@
 
   function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
   function loadVal(key, dflt) { try { return JSON.parse(localStorage.getItem(key)) || dflt; } catch (e) { return dflt; } }
+
+  /* rodapé (WhatsApp fixo no HTML → repinta com o número atual) */
+  function pintaRodape() {
+    const d = String(CFG.whatsapp || '').replace(/\D/g, '');
+    const f = document.querySelector('.fnum');
+    if (!f || !d) return;
+    f.textContent = /^55\d{10,11}$/.test(d)
+      ? '+55 ' + d.slice(2, 4) + ' ' + (d.length - 4 === 9 ? d.slice(4, 9) + '-' + d.slice(9) : d.slice(4, 8) + '-' + d.slice(8))
+      : d;
+  }
 
   const store = { cart: loadVal('mp_cart_v1', []), fav: loadVal('mp_fav_v1', []), q: '', sort: 'rel', size: '', alt: '', fab: '', cor: '', sel: {} };
 
@@ -115,11 +131,11 @@
     if (ck.ativo) row.push(`<a class="btn btn-primary full" href="#/pagamento">${I.cart} Finalizar compra — pagar no site</a>`);
     if (pay.link) row.push(`<a class="btn btn-mp full" href="${esc(pay.link)}" target="_blank" rel="noopener">${I.card} Pagar online — Mercado Pago</a>`);
     if (pay.pix) row.push(`<button class="btn btn-ghost full" data-action="copy-pix">${I.copy} Copiar chave Pix</button>`);
-    if (!row.length) { box.hidden = true; return; }
+    if (!row.length) { box.hidden = true; const fp0 = $('#footPay'); if (fp0) fp0.hidden = true; return; }
     row.unshift(`<p class="small-note muted">${ck.ativo
       ? 'Fechou o orçamento? Pague aqui mesmo na loja — Pix ou cartão em até 12x.'
       : pay.link
-        ? 'Fechou o orçamento? Pague por aqui — Pix ou cartão em até 12x pelo Mercado Pago.'
+        ? 'Fechou o orçamento? Pague por aqui — Pix ou cartão em até 12x.'
         : 'Fechou o orçamento? Pague direto no Pix — copie a chave abaixo.'}</p>`);
     box.innerHTML = row.join('');
     box.hidden = false;
@@ -128,7 +144,7 @@
       fp.hidden = false;
       fp.textContent = ck.ativo
         ? 'Pague online aqui mesmo no site — Pix ou cartão em até 12x.'
-        : 'Pague online com Pix ou cartão em até 12x pelo Mercado Pago.';
+        : 'Pague online com Pix ou cartão em até 12x.';
     }
   }
 
@@ -147,7 +163,7 @@
     const kimg = cimg || p.imgs[0];
     return `<article class="card">
       <a class="card-media ${dkC(kimg)}" href="#/p/${p.id}" aria-label="${esc(p.name)}">
-        <img src="${P + (cimg || p.imgs[0])}.jpg" alt="${esc(p.name)}" loading="lazy">
+        <img src="${imgSrc(cimg || p.imgs[0])}" alt="${esc(p.name)}" loading="lazy">
         <span class="heart ${isFav(p.id) ? 'on' : ''}" data-action="fav" data-id="${p.id}" aria-label="Favoritar">${I.heart(isFav(p.id))}</span>
       </a>
       <div class="card-body">
@@ -167,14 +183,14 @@
     const H = DATA.home;
     const tiles = DATA.cats.map(c => `
       <a class="tile" href="#/c/${c.id}">
-        <img src="${P + c.img}.jpg" alt="" loading="lazy">
+        <img src="${imgSrc(c.img)}" alt="" loading="lazy">
         <span class="tile-label"><strong>${esc(c.nome)}</strong><small>${esc(c.desc)}</small></span>
       </a>`).join('');
     const feat = DATA.home.featured.map(id => byId(id)).filter(Boolean).map(card).join('');
     return `
       ${renderNav('todos')}
       <section class="hero">
-        <img class="hero-img" src="${P + H.hero.img}.jpg" alt="">
+        <img class="hero-img" src="${imgSrc(H.hero.img)}" alt="">
         <div class="hero-in">
           <p class="eyebrow">${esc(H.hero.kicker)}</p>
           <h1>${esc(H.hero.title)}</h1>
@@ -197,7 +213,7 @@
           <div class="chips">${H.vacuo.chips.map(c => `<span class="chip big">${esc(c)}</span>`).join('')}</div>
           <a class="btn btn-primary" href="${H.vacuo.ctaHref}">${esc(H.vacuo.cta)}</a>
         </div>
-        <div class="vacuo-img"><img src="${P + H.vacuo.img}.jpg" alt="" loading="lazy"></div>
+        <div class="vacuo-img"><img src="${imgSrc(H.vacuo.img)}" alt="" loading="lazy"></div>
       </section>
       <section class="sec">
         <div class="sec-head"><h2>Queridinhos do catálogo</h2></div>
@@ -347,8 +363,8 @@
       <div class="crumbs"><a href="#/c/todos">Catálogo</a> › <a href="#/c/${p.cat}">${esc(catOf(p.cat).nome)}</a> › <span>${esc(p.name)}</span></div>
       <div class="product">
         <div class="gallery">
-          <div class="g-main ${dkC(main)}"><img id="gMain" src="${P + main}.jpg" alt="${esc(p.name)}"></div>
-          <div class="g-thumbs">${p.imgs.map(im => `<button class="thumb ${main === im ? 'on ' : ''}${dkC(im)}" data-action="thumb-img" data-src="${im}"><img src="${P + im}.jpg" alt="" loading="lazy"></button>`).join('')}</div>
+          <div class="g-main ${dkC(main)}"><img id="gMain" src="${imgSrc(main)}" alt="${esc(p.name)}"></div>
+          <div class="g-thumbs">${p.imgs.map(im => `<button class="thumb ${main === im ? 'on ' : ''}${dkC(im)}" data-action="thumb-img" data-src="${im}"><img src="${imgSrc(im)}" alt="" loading="lazy"></button>`).join('')}</div>
         </div>
         <div class="buybox">
           <div class="badges">${(p.badges || []).map(b => `<span class="badge">${esc(b)}</span>`).join('')}</div>
@@ -677,7 +693,7 @@
       d.innerHTML = store.cart.map((i, k) => {
         const p = byId(i.pid);
         return `<div class="citem">
-          <img class="${p ? dkC(p.imgs[0]) : ''}" src="${P + ((p && p.imgs[0]) || '')}.jpg" alt="" loading="lazy">
+          <img class="${p ? dkC(p.imgs[0]) : ''}" src="${imgSrc(p && p.imgs[0])}" alt="" loading="lazy">
           <div class="cinfo"><strong>${esc(i.name)}</strong><span class="muted">${esc(i.vid)}</span>
             <div class="crow"><div class="qty sm"><button data-action="dec" data-i="${k}" aria-label="Diminuir">${I.minus}</button><span>${i.qty}</span><button data-action="inc" data-i="${k}" aria-label="Aumentar">${I.plus}</button></div>
             <button class="iconbtn sm" data-action="rm" data-i="${k}" aria-label="Remover">${I.trash}</button></div>
@@ -832,7 +848,7 @@
     }
     if (a === 'thumb-img') {
       const p = byId(parseProduct());
-      document.getElementById('gMain').src = P + b.dataset.src + '.jpg';
+      document.getElementById('gMain').src = imgSrc(b.dataset.src);
       const gm = document.querySelector('.g-main');
       if (gm) gm.classList.toggle('dk', DK.includes(b.dataset.src));
       document.querySelectorAll('.thumb').forEach(t => t.classList.remove('on'));
@@ -874,9 +890,43 @@
   $('#overlay').addEventListener('click', () => closeDrawer());
   window.addEventListener('hashchange', () => { route = ''; render(); });
 
+  /* ---------- dados do painel (publicada) ----------
+     Na loja no ar, o painel pode ter alterado config/produtos (KV).
+     Busca /api/store (cache 60s) e mescla — antes disso a loja já
+     desenha com config.js/data.js, então nada "pisca".
+     No file:// o fetch falha e a loja fica exatamente como era.       */
+  function mesclarServidor(d) {
+    if (d.conf) {
+      const pg = CFG.pagamentos || {}, ck = pg.checkout || {};
+      Object.assign(CFG, { whatsapp: d.conf.whatsapp || CFG.whatsapp });
+      ['saudacao', 'cidade', 'instagram', 'email'].forEach(k => {
+        if (typeof d.conf[k] === 'string') CFG[k] = d.conf[k];
+      });
+      if (d.conf.mostrarPrecos != null) CFG.mostrarPrecos = !!d.conf.mostrarPrecos;
+      if (d.conf.checkoutAtivo != null) ck.ativo = !!d.conf.checkoutAtivo;
+      if (typeof d.conf.mpLink === 'string') pg.link = d.conf.mpLink;
+      if (typeof d.conf.pix === 'string') pg.pix = d.conf.pix;
+      if (typeof d.conf.pixNome === 'string') pg.pixNome = d.conf.pixNome;
+      if (d.conf.sinalFixo != null) ck.sinalFixo = Number(d.conf.sinalFixo) || 0;
+      if (d.conf.parcelasMax != null) ck.parcelasMax = Math.min(Math.max(Number(d.conf.parcelasMax) || 12, 1), 12);
+    }
+    if (Array.isArray(d.produtos) && d.produtos.length) DATA.products = d.produtos;
+  }
+  if (location.protocol !== 'file:') {
+    fetch('/api/store').then(r => (r.ok ? r.json() : null)).then(d => {
+      if (!d || (!d.conf && !Array.isArray(d.produtos))) return;
+      mesclarServidor(d);
+      render();
+      renderCart();
+      renderPay();
+      pintaRodape();
+    }).catch(() => {});
+  }
+
   /* boot */
   render();
   renderCart();
   updateBadges();
   renderPay();
+  pintaRodape();
 })();

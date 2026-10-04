@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Painel — ComfyLife</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <!-- tela de login -->
+  <div id="login" class="login" hidden>
+    <form class="lbox" id="lForm">
+      <div class="lbrand"><strong>Comfy<em>Life</em></strong><span>Painel de controle</span></div>
+      <label class="fld">Senha do painel
+        <input id="lSenha" type="password" autocomplete="current-password">
+      </label>
+      <button class="btn btn-primary full" id="lGo" type="submit">Entrar</button>
+      <p id="lErr" class="lerr" hidden></p>
+      <p class="lnote muted">A senha vive só no servidor (Cloudflare) — nunca neste código.</p>
+    </form>
+  </div>
+
+  <!-- painel -->
+  <div id="painel" hidden>
+    <header class="ahead">
+      <div class="abrand"><strong>Comfy<em>Life</em></strong><span>painel</span></div>
+      <nav class="atabs">
+        <button class="atab on" data-tab="vis">Visão geral</button>
+        <button class="atab" data-tab="ped">Pedidos</button>
+        <button class="atab" data-tab="prod">Produtos</button>
+        <button class="atab" data-tab="loja">Loja</button>
+      </nav>
+      <button class="btn-ghost-a" id="sairBtn">Sair</button>
+    </header>
+    <main id="adm" class="amain"></main>
+  </div>
+
+  <div id="atoast" role="status" hidden></div>
+  <div id="modal" class="amodal" hidden><div class="mbox"><button class="aclose" id="mFechar" aria-label="Fechar">&times;</button><div id="mConteudo"></div></div></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
